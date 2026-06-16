@@ -268,4 +268,4 @@ setInterval(async () => {
     swaplog.settle(sym => prices[sym] ?? null);
     swaplog.report();
   } catch (e) { console.error("swaplog settle error:", e.message); }
-}, 5 * 60 * 1000); lib
+}, 5 * 60 * 1000); 
