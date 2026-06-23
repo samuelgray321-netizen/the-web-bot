@@ -35,36 +35,28 @@ if (!ALPACA_KEY || !ALPACA_SECRET) {
 // Set env var FETCH_HISTORY=1 in Railway to download & print real historical
 // prices (then it exits — no trading). Remove the var to run the bot normally.
 if (process.env.FETCH_HISTORY === "1") {
-  const SYMS = ["JPM","GS","BAC","XOM","CVX","COP","KO","PEP","MDLZ"];
-  const H = { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET };
+  const SYMS = ["JPM","GS","BAC","WFC","C","XOM","CVX","COP","SLB","EOG","KO","PEP","MDLZ","CL","PG","AAPL","MSFT","NVDA","GOOGL","META","WMT","TGT","COST","HD","LOW","UNH","CVS","PFE","MRK","ABBV","AMD","INTC","TXN","QCOM","MU","CAT","DE","BA","GE","HON"];
+  const HH = { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET };
   (async () => {
-    const out = {};
     for (const s of SYMS) {
       const bars = []; let token = null;
       do {
         const u = new URL("https://data.alpaca.markets/v2/stocks/" + s + "/bars");
-        u.searchParams.set("timeframe", "1Day");
-        u.searchParams.set("start", "2023-01-01");
-        u.searchParams.set("end", "2025-12-31");
-        u.searchParams.set("limit", "10000");
-        u.searchParams.set("adjustment", "all");
+        u.searchParams.set("timeframe","1Day"); u.searchParams.set("start","2023-01-01"); u.searchParams.set("end","2025-12-31");
+        u.searchParams.set("limit","10000"); u.searchParams.set("adjustment","all");
         if (token) u.searchParams.set("page_token", token);
-        const r = await fetch(u, { headers: H });
-        if (!r.ok) { console.error(s + ": " + r.status + " " + (await r.text())); break; }
+        const r = await fetch(u, { headers: HH });
+        if (!r.ok) { console.error(s + ": " + r.status); break; }
         const d = await r.json();
-        if (d.bars) for (const b of d.bars) bars.push({ t: b.t, c: b.c });
+        if (d.bars) for (const b of d.bars) bars.push([b.t.slice(0,10), +b.c.toFixed(2)]);
         token = d.next_page_token;
       } while (token);
-      out[s] = bars; console.error(s + ": " + bars.length + " bars");
+      console.log("===A:" + s + "===");
+      console.log(JSON.stringify(bars));
+      console.log("===E:" + s + "===");
+      await new Promise(r => setTimeout(r, 150));
     }
-    const cnt = {};
-    for (const s of SYMS) for (const b of out[s]) cnt[b.t] = (cnt[b.t] || 0) + 1;
-    const common = Object.keys(cnt).filter(t => cnt[t] === SYMS.length).sort();
-    const rows = common.map(t => { const r = [t]; for (const s of SYMS) r.push(+out[s].find(b => b.t === t).c.toFixed(2)); return r; });
-    console.log("===HISTORY_START===");
-    console.log(JSON.stringify({ symbols: SYMS, rows }));
-    console.log("===HISTORY_END===");
-    console.error("DONE: " + rows.length + " bars. Copy everything between the HISTORY markers.");
+    console.error("ALL DONE — 40 assets printed. Upload the log file.");
     process.exit(0);
   })();
 } else {
