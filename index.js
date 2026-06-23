@@ -31,6 +31,44 @@ if (!ALPACA_KEY || !ALPACA_SECRET) {
   process.exit(1);
 }
 
+// ── ONE-TIME HISTORY FETCH MODE ───────────────────────────────────────────
+// Set env var FETCH_HISTORY=1 in Railway to download & print real historical
+// prices (then it exits — no trading). Remove the var to run the bot normally.
+if (process.env.FETCH_HISTORY === "1") {
+  const SYMS = ["JPM","GS","BAC","XOM","CVX","COP","KO","PEP","MDLZ"];
+  const H = { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET };
+  (async () => {
+    const out = {};
+    for (const s of SYMS) {
+      const bars = []; let token = null;
+      do {
+        const u = new URL("https://data.alpaca.markets/v2/stocks/" + s + "/bars");
+        u.searchParams.set("timeframe", "1Day");
+        u.searchParams.set("start", "2023-01-01");
+        u.searchParams.set("end", "2025-12-31");
+        u.searchParams.set("limit", "10000");
+        u.searchParams.set("adjustment", "all");
+        if (token) u.searchParams.set("page_token", token);
+        const r = await fetch(u, { headers: H });
+        if (!r.ok) { console.error(s + ": " + r.status + " " + (await r.text())); break; }
+        const d = await r.json();
+        if (d.bars) for (const b of d.bars) bars.push({ t: b.t, c: b.c });
+        token = d.next_page_token;
+      } while (token);
+      out[s] = bars; console.error(s + ": " + bars.length + " bars");
+    }
+    const cnt = {};
+    for (const s of SYMS) for (const b of out[s]) cnt[b.t] = (cnt[b.t] || 0) + 1;
+    const common = Object.keys(cnt).filter(t => cnt[t] === SYMS.length).sort();
+    const rows = common.map(t => { const r = [t]; for (const s of SYMS) r.push(+out[s].find(b => b.t === t).c.toFixed(2)); return r; });
+    console.log("===HISTORY_START===");
+    console.log(JSON.stringify({ symbols: SYMS, rows }));
+    console.log("===HISTORY_END===");
+    console.error("DONE: " + rows.length + " bars. Copy everything between the HISTORY markers.");
+    process.exit(0);
+  })();
+} else {
+
 // ── CONFIG ────────────────────────────────────────────────────────────────
 // Liquid, shortable large-caps grouped into linked families.
 // Pairs WITHIN a family share real economic forces (more likely to revert).
@@ -108,19 +146,26 @@ function logRatio(prices, p) {
   if (!prices[p.a] || !prices[p.b]) return null;
   return Math.log(prices[p.a] / prices[p.b]);
 }
+const MIN_SD = 0.0015;  // a pair's log-ratio must wobble at least this much to be tradeable.
+                        // Guards against divide-by-near-zero producing garbage z-scores.
 function freeze(p) {
   const h = hist[p.key];
   if (h.length < FORMATION) return;
   const m = h.reduce((x, y) => x + y, 0) / h.length;
   let v = 0; for (const x of h) v += (x - m) * (x - m);
-  anchor[p.key] = { mean: m, sd: Math.sqrt(v / h.length), setAt: bars, valid: true };
+  const sd = Math.sqrt(v / h.length);
+  // If the spread barely moves, its sd is unreliable — don't trust/trade this pair.
+  if (sd < MIN_SD) { anchor[p.key] = { mean: m, sd, setAt: bars, valid: false }; return; }
+  anchor[p.key] = { mean: m, sd, setAt: bars, valid: true };
 }
 function zscore(prices, p) {
   const a = anchor[p.key];
   if (!a.valid) return null;
   const r = logRatio(prices, p);
   if (r === null) return null;
-  return (r - a.mean) / Math.max(a.sd, 1e-9);
+  const z = (r - a.mean) / Math.max(a.sd, MIN_SD);   // real floor, not 1e-9
+  if (!isFinite(z) || Math.abs(z) > 50) return null;  // sanity cap — reject impossible z-scores
+  return z;
 }
 
 // ── MAIN LOOP ──────────────────────────────────────────────────────────────
@@ -268,4 +313,6 @@ setInterval(async () => {
     swaplog.settle(sym => prices[sym] ?? null);
     swaplog.report();
   } catch (e) { console.error("swaplog settle error:", e.message); }
-}, 5 * 60 * 1000); 
+}, 5 * 60 * 1000);
+
+} // end of normal-bot mode (FETCH_HISTORY not set)
